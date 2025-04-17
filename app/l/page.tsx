@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Metadata } from "next"
+import { TournamentsSection } from "./components/tournaments-section"
 
 type Props = {
   searchParams: { [key: string]: string | string[] | undefined }
@@ -53,7 +54,13 @@ export default async function LeaguePage(props: Props) {
   console.log('Buscando liga con slug:', slug)
   const { data: league, error } = await supabase
     .from("leagues")
-    .select('id, name, description, created_at')
+    .select(`
+      id, 
+      name, 
+      description, 
+      created_at,
+      tournaments(id, name, start_date, end_date, teams(id, name))
+    `)
     .eq("slug", slug)
     .single()
 
@@ -152,20 +159,26 @@ export default async function LeaguePage(props: Props) {
         </div>
       </div>
 
-      {/* Call to Action */}
-      <div className="container mx-auto px-4 py-16 text-center">
-        <Card className="bg-green-50 border-none">
-          <CardHeader>
-            <CardTitle className="text-2xl text-green-800">¿Listo para competir?</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-green-700">Únete a la liga y sé parte de la emoción del fútbol</p>
-            <Button className="bg-green-600 hover:bg-green-700">
-              <UserPlus className="mr-2 h-4 w-4" />
-              Registrar Equipo
-            </Button>
-          </CardContent>
-        </Card>
+      {/* Torneos */}
+      <div className="container mx-auto px-4 py-16">
+        <TournamentsSection tournaments={league.tournaments || []}/>
+
+
+        {/* Call to Action */}
+        <div className="mt-8">
+          <Card className="bg-green-50 border-none">
+            <CardHeader>
+              <CardTitle className="text-2xl text-green-800">¿Listo para competir?</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-green-700">Únete a la liga y sé parte de la emoción del fútbol</p>
+              <Button className="bg-green-600 hover:bg-green-700">
+                <UserPlus className="mr-2 h-4 w-4" />
+                Registrar Equipo
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   )

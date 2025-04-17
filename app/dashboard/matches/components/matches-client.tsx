@@ -1,7 +1,10 @@
 'use client'
 
 import { useState } from "react"
+import { History } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/ui/use-toast"
 import {
   Table,
   TableBody,
@@ -26,40 +29,26 @@ import {
 } from "@/components/ui/dialog"
 import { GenerateScheduleForm } from "./generate-schedule-form"
 import { UpdateMatchResultForm } from "./update-match-result-form"
+import { MatchResultsDialog } from "./match-results-dialog"
+import { EditMatchForm } from "./edit-match-form"
+import { getMatchResults } from "../actions"
+import { Match, Tournament, MatchResult } from "../types"
 
-interface Match {
-  id: string
-  tournament_id: string
-  home_team_id: string
-  away_team_id: string
-  home_team_name: string
-  away_team_name: string
-  matchday: number
-  date: string
-  time: string
-  status: 'pending' | 'completed'
-  home_score?: number
-  away_score?: number
-}
-
-interface Tournament {
-  id: string
-  name: string
-  teams: {
-    id: string
-    name: string
-  }[]
-}
-
-export function MatchesClient({ matches, tournaments }: { matches: Match[] | null, tournaments: Tournament[] | null }) {
+export function MatchesClient({ matches: initialMatches, tournaments }: { matches: Match[] | null, tournaments: Tournament[] | null }) {
+  const { toast } = useToast()
+  const [matches, setMatches] = useState(initialMatches)
   console.log('MatchesClient - matches:', matches)
   console.log('MatchesClient - tournaments:', tournaments)
-  const [selectedMatch, setSelectedMatch] = useState<{
-    id: string
-    home_team_name: string
-    away_team_name: string
-  } | null>(null)
+
+  const { getMatches } = require('../actions')
+  const [selectedMatch, setSelectedMatch] = useState<Match | null>(null)
+  const [selectedHistoryMatch, setSelectedHistoryMatch] = useState<(Match & { results: MatchResult[] }) | null>(null)
+  const [matchResults, setMatchResults] = useState<MatchResult[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [showScheduleForm, setShowScheduleForm] = useState(false)
+  const [showHistoryDialog, setShowHistoryDialog] = useState(false)
+  const [selectedTournament, setSelectedTournament] = useState<string | null>(null)
+  const [selectedEditMatch, setSelectedEditMatch] = useState<{ match: Match, tournament: Tournament } | null>(null)
 
   const matchesByTournament = matches?.reduce((acc, match) => {
     if (!acc[match.tournament_id]) {
@@ -71,23 +60,112 @@ export function MatchesClient({ matches, tournaments }: { matches: Match[] | nul
 
   return (
     <>
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Registrar Resultado</DialogTitle>
-          </DialogHeader>
-          {selectedMatch && (
+      {selectedMatch && (
+        <Dialog open onOpenChange={() => setSelectedMatch(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Registrar Resultado</DialogTitle>
+            </DialogHeader>
             <UpdateMatchResultForm
               match={selectedMatch}
-              onClose={() => setDialogOpen(false)}
+              onClose={() => setSelectedMatch(null)}
+              onSuccess={async () => {
+                const { data } = await getMatches()
+                if (data) {
+                  setMatches(data)
+                }
+              }}
             />
-          )}
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <MatchResultsDialog
+        match={selectedHistoryMatch}
+        open={showHistoryDialog}
+        onClose={() => {
+          setShowHistoryDialog(false)
+          setSelectedHistoryMatch(null)
+        }}
+      />
+
+      {selectedEditMatch && (
+        <Dialog open onOpenChange={() => setSelectedEditMatch(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Editar Partido</DialogTitle>
+            </DialogHeader>
+            <EditMatchForm
+              match={selectedEditMatch.match}
+              tournament={selectedEditMatch.tournament}
+              onSuccess={async () => {
+                const { data } = await getMatches()
+                if (data) {
+                  setMatches(data)
+                }
+              }}
+              onClose={() => setSelectedEditMatch(null)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {showScheduleForm && (
+        <Dialog open onOpenChange={() => setShowScheduleForm(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Generar Calendario</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4">
+              <div className="space-y-2">
+                <label>Seleccionar Torneo</label>
+                <Select 
+                  onValueChange={(value) => setSelectedTournament(value)}
+                  value={selectedTournament || undefined}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un torneo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {tournaments?.map((tournament) => (
+                        <SelectItem key={tournament.id} value={tournament.id}>
+                          {tournament.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedTournament && (
+                <GenerateScheduleForm 
+                  tournamentId={selectedTournament}
+                  onSuccess={() => {
+                    setShowScheduleForm(false)
+                    setSelectedTournament(null)
+                  }}
+                />
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Rol de Juegos</h1>
+          <h1 className="text-3xl font-bold">Partidos</h1>
+          <div className="flex gap-2">
+            <Button onClick={() => setShowScheduleForm(true)}>
+              Generar Calendario
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowScheduleForm(true)}
+              disabled={!tournaments?.length}
+            >
+              Reagendar Partidos
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-6">
@@ -145,33 +223,53 @@ export function MatchesClient({ matches, tournaments }: { matches: Match[] | nul
                                       : "Pendiente"}
                                   </TableCell>
                                   <TableCell className="text-right">
-                                    {match.status === "pending" && (
-                                      <Select
-                                        onValueChange={(value) => {
-                                          if (value === 'update') {
-                                            setSelectedMatch(match)
-                                            setDialogOpen(true)
+                                    <div className="flex items-center space-x-2 justify-end">
+                                      {match.status === "pending" && (
+                                        <>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setSelectedMatch(match)}
+                                          >
+                                            Registrar
+                                          </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={async () => {
+                                              const { data } = await getMatchResults(match.id)
+                                              if (data && data.length > 0) {
+                                                setMatchResults(data)
+                                                setSelectedHistoryMatch({
+                                                  ...match,
+                                                  results: data
+                                                })
+                                                setShowHistoryDialog(true)
+                                              } else {
+                                                toast({
+                                                  description: 'No hay registros de resultados para este partido',
+                                                  variant: 'default'
+                                                })
+                                              }
+                                            }}
+                                          >
+                                            <History className="h-4 w-4" />
+                                          </Button>
+                                        </>
+                                      )}
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          const tournament = tournaments?.find(t => t.id === match.tournament_id)
+                                          if (tournament) {
+                                            setSelectedEditMatch({ match, tournament })
                                           }
                                         }}
                                       >
-                                        <SelectTrigger className="w-40">
-                                          <SelectValue placeholder="Acciones" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectGroup>
-                                            <SelectItem value="update">
-                                              Registrar Resultado
-                                            </SelectItem>
-                                            <SelectItem value="reschedule">
-                                              Reprogramar
-                                            </SelectItem>
-                                            <SelectItem value="cancel">
-                                              Cancelar Partido
-                                            </SelectItem>
-                                          </SelectGroup>
-                                        </SelectContent>
-                                      </Select>
-                                    )}
+                                        Editar
+                                      </Button>
+                                    </div>
                                   </TableCell>
                                 </TableRow>
                               ))}

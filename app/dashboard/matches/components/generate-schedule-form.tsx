@@ -4,10 +4,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { generateMatchSchedule } from "../actions"
 
-export function GenerateScheduleForm({ tournamentId }: { tournamentId: string }) {
+export function GenerateScheduleForm({ tournamentId, onSuccess }: { tournamentId: string; onSuccess?: () => void }) {
   return (
     <form
-      action={generateMatchSchedule}
+      action={async (formData: FormData) => {
+        await generateMatchSchedule(formData)
+        onSuccess?.()
+      }}
       className="space-y-4"
     >
       <input type="hidden" name="tournamentId" value={tournamentId} />

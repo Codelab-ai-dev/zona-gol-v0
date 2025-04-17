@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from "@/utils/supabase/server"
+import { revalidatePath } from "next/cache"
 
 type TeamResponse = {
   id: string
@@ -279,15 +280,45 @@ export async function generateMatchSchedule(formData: FormData) {
   }
 }
 
-export async function updateMatchResult(
-  matchId: string,
-  homeScore: number,
-  awayScore: number
-) {
+export async function updateMatch(match: Match) {
   const supabase = await createClient()
 
   try {
     const { error } = await supabase
+      .from('matches')
+      .update({
+        home_team_id: match.home_team_id,
+        away_team_id: match.away_team_id,
+        date: match.date,
+        time: match.time
+      })
+      .eq('id', match.id)
+
+    if (error) throw error
+
+    revalidatePath('/dashboard/matches')
+    return { data: true, error: null }
+  } catch (error) {
+    console.error('Error:', error)
+    return { data: null, error: 'Error al actualizar el partido' }
+  }
+}
+
+export async function updateMatchResult(
+  matchId: string,
+  homeScore: number,
+  awayScore: number,
+  notes?: string
+) {
+  const supabase = await createClient()
+
+  try {
+    // 1. Iniciar una transacción
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Usuario no autenticado')
+
+    // 2. Actualizar el partido
+    const { error: matchError } = await supabase
       .from('matches')
       .update({
         home_score: homeScore,
@@ -296,13 +327,70 @@ export async function updateMatchResult(
       })
       .eq('id', matchId)
 
-    if (error) {
-      throw new Error('Error al actualizar el resultado')
-    }
+    if (matchError) throw matchError
 
+    // 3. Registrar el resultado en el historial
+    const { error: resultError } = await supabase
+      .from('match_results')
+      .insert({
+        match_id: matchId,
+        home_score: homeScore,
+        away_score: awayScore,
+        recorded_by: user.id,
+        notes
+      })
+
+    if (resultError) throw resultError
+
+    revalidatePath('/dashboard/matches')
+    revalidatePath('/dashboard/statistics')
     return { data: true, error: null }
   } catch (error) {
     console.error('Error:', error)
     return { data: null, error: 'Error al actualizar el resultado del partido' }
+  }
+}
+
+interface MatchResult {
+  id: string
+  home_score: number
+  away_score: number
+  recorded_by_name: string
+  notes?: string
+  created_at: string
+}
+
+export async function getMatchResults(matchId: string): Promise<{ data: MatchResult[] | null, error: string | null }> {
+  const supabase = await createClient()
+
+  try {
+    const { data: results, error } = await supabase
+      .from('match_results')
+      .select(`
+        id,
+        home_score,
+        away_score,
+        notes,
+        created_at,
+        recorded_by
+      `)
+      .eq('match_id', matchId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    const formattedResults = results?.map(result => ({
+      id: result.id,
+      home_score: result.home_score,
+      away_score: result.away_score,
+      notes: result.notes,
+      created_at: result.created_at,
+      recorded_by_name: result.recorded_by || 'Unknown'
+    })) || []
+
+    return { data: formattedResults, error: null }
+  } catch (error) {
+    console.error('Error:', error)
+    return { data: null, error: 'Error al obtener el historial de resultados' }
   }
 }
